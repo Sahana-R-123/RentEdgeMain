@@ -1,0 +1,1 @@
+D:\projects\flutter_try02\android\app\src\main\kotlin\com\example\flutter_try02\MainActivity.kt

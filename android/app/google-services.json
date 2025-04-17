@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "493412415077",
+    "project_id": "rent-edge",
+    "storage_bucket": "rent-edge.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:493412415077:android:5903382f131fee1c4e388c",
+        "android_client_info": {
+          "package_name": "com.flutter_try02.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDi0dN9rWyCMPq1WnfD-a51xosJrRmRIJg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
