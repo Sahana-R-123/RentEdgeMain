@@ -1,10 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'dart:convert';
 
 class YourListingsScreen extends StatelessWidget {
   const YourListingsScreen({Key? key}) : super(key: key);
+
+  Future<void> _deleteProduct(BuildContext context, String productId) async {
+    try {
+      await FirebaseFirestore.instance.collection('products').doc(productId).delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Product deleted successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete product: $e')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,14 +35,14 @@ class YourListingsScreen extends StatelessWidget {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            Navigator.pushReplacementNamed(context, '/dashboard'); // Adjust this route if needed
+            Navigator.pushReplacementNamed(context, '/dashboard');
           },
         ),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('products')
-            .where('sellerId', isEqualTo: userId) // ✅ Updated to match Firestore field
+            .where('sellerId', isEqualTo: userId)
             .orderBy('timestamp', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -47,25 +59,25 @@ class YourListingsScreen extends StatelessWidget {
           return ListView.builder(
             itemCount: products.length,
             itemBuilder: (context, index) {
-              final data = products[index].data() as Map<String, dynamic>;
+              final productDoc = products[index];
+              final data = productDoc.data() as Map<String, dynamic>;
+              final productId = productDoc.id;
 
               Widget imageWidget = const Icon(Icons.image_not_supported, size: 40);
 
+              // ✅ Display image from imgbb-hosted URL
               if (data['images'] != null &&
                   data['images'] is List &&
                   data['images'].isNotEmpty) {
-                try {
-                  final decoded = base64Decode(data['images'][0]);
-                  imageWidget = Image.memory(
-                    decoded,
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                  );
-                } catch (e) {
-                  // If decoding fails, fallback to icon
-                  imageWidget = const Icon(Icons.broken_image, size: 40);
-                }
+                final imageUrl = data['images'][0];
+                imageWidget = Image.network(
+                  imageUrl,
+                  width: 60,
+                  height: 60,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) =>
+                  const Icon(Icons.broken_image, size: 40),
+                );
               }
 
               return Card(
@@ -85,12 +97,41 @@ class YourListingsScreen extends StatelessWidget {
                         Text("Category: ${data['category']}"),
                     ],
                   ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () => _showDeleteDialog(context, productId),
+                  ),
                 ),
               );
             },
           );
         },
       ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context, String productId) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Confirm Delete"),
+          content: const Text("Are you sure you want to delete this product?"),
+          actions: [
+            TextButton(
+              child: const Text("Cancel"),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            TextButton(
+              child: const Text("Delete", style: TextStyle(color: Colors.red)),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _deleteProduct(context, productId);
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 }

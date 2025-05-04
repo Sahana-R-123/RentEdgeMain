@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class ReportIssueScreen extends StatefulWidget {
   @override
@@ -7,16 +10,41 @@ class ReportIssueScreen extends StatefulWidget {
 
 class _ReportIssueScreenState extends State<ReportIssueScreen> {
   final TextEditingController _issueController = TextEditingController();
+  bool _isSubmitting = false;
 
-  void _submitReport(BuildContext context) {
-    if (_issueController.text.isNotEmpty) {
-      // Display a confirmation message
+  Future<void> _submitReport(BuildContext context) async {
+    if (_issueController.text.isEmpty) return;
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    try {
+      // Get reference to Firestore
+      final firestore = FirebaseFirestore.instance;
+
+      // Add a new document with the report
+      await firestore.collection('reported_issues').add({
+        'description': _issueController.text,
+        'timestamp': FieldValue.serverTimestamp(),
+        'status': 'new',
+      });
+
+      // Display success message
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Report has been issued')),
+        const SnackBar(content: Text('Report has been submitted successfully')),
       );
 
-      // Navigate back to Profile Screen
+      // Navigate back
       Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error submitting report: ${e.toString()}')),
+      );
+    } finally {
+      setState(() {
+        _isSubmitting = false;
+      });
     }
   }
 
@@ -47,8 +75,10 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             const SizedBox(height: 20),
             Center(
               child: ElevatedButton(
-                onPressed: () => _submitReport(context),
-                child: const Text('Send Report'),
+                onPressed: _isSubmitting ? null : () => _submitReport(context),
+                child: _isSubmitting
+                    ? const CircularProgressIndicator()
+                    : const Text('Send Report'),
               ),
             ),
           ],

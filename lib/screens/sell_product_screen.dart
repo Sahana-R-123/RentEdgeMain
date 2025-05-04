@@ -4,13 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Added this import
-import '../../providers/user_provider.dart';
+import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 
 class SellProductScreen extends StatefulWidget {
   final String? initialCategory;
-
   const SellProductScreen({Key? key, this.initialCategory}) : super(key: key);
 
   @override
@@ -21,25 +19,14 @@ class _SellProductScreenState extends State<SellProductScreen> {
   final _formKey = GlobalKey<FormState>();
   late String _selectedCategory;
   Map<String, TextEditingController> _controllers = {};
-  List<File> _images = [];
+  List<String> _uploadedImageUrls = [];
   bool _isSubmitting = false;
-
   Position? _currentPosition;
   final picker = ImagePicker();
 
-  // Define all possible categories here
   static const List<String> _availableCategories = [
-    'Cycle',
-    'Accessories',
-    'Electronics',
-    'Books',
-    'Stationery',
-    'Games',
-    'Calculator',
-    'Laptop',
-    'Watch',
-    'Lab Coat',
-    'Shoes',
+    'Cycle', 'Accessories', 'Electronics', 'Books', 'Stationery', 'Games',
+    'Calculator', 'Laptop', 'Watch', 'Lab Coat', 'Shoes',
   ];
 
   final Map<String, List<Map<String, String>>> _categoryFields = {
@@ -94,21 +81,17 @@ class _SellProductScreenState extends State<SellProductScreen> {
   @override
   void initState() {
     super.initState();
-    // Ensure initial category is valid or default to first available category
-    _selectedCategory = widget.initialCategory != null &&
-        _availableCategories.contains(widget.initialCategory)
+    _selectedCategory = widget.initialCategory != null && _availableCategories.contains(widget.initialCategory!)
         ? widget.initialCategory!
         : _availableCategories.first;
     _initializeAllControllers();
   }
 
   void _initializeAllControllers() {
-    // Initialize core fields
     _controllers['title'] = TextEditingController();
     _controllers['description'] = TextEditingController();
     _controllers['price'] = TextEditingController();
 
-    // Initialize all category-specific fields
     for (var fields in _categoryFields.values) {
       for (var field in fields) {
         _controllers[field['key']!] = TextEditingController();
@@ -118,26 +101,51 @@ class _SellProductScreenState extends State<SellProductScreen> {
 
   Future<void> _pickImage() async {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null && _images.length < 5) {
-      setState(() {
-        _images.add(File(pickedFile.path));
-      });
-    } else if (_images.length >= 5) {
+    if (pickedFile != null && _uploadedImageUrls.length < 5) {
+      final url = await _uploadImageToImgbb(File(pickedFile.path));
+      if (url != null) {
+        setState(() {
+          _uploadedImageUrls.add(url);
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to upload image.')),
+        );
+      }
+    } else if (_uploadedImageUrls.length >= 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Maximum 5 images allowed')),
       );
     }
   }
 
+  Future<String?> _uploadImageToImgbb(File imageFile) async {
+    final apiKey = 'f2cbde2f326712f0ac36f47a7a6efa3a';
+    final uri = Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey');
+    final bytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(bytes);
+
+    final response = await http.post(uri, body: {
+      'image': base64Image,
+    });
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['data']['url'];
+    } else {
+      debugPrint('Image upload failed: ${response.body}');
+      return null;
+    }
+  }
+
   Future<void> _removeImage(int index) async {
     setState(() {
-      _images.removeAt(index);
+      _uploadedImageUrls.removeAt(index);
     });
   }
 
   Future<void> _getCurrentLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
+    if (!await Geolocator.isLocationServiceEnabled()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Location services are disabled.')),
       );
@@ -147,50 +155,38 @@ class _SellProductScreenState extends State<SellProductScreen> {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.deniedForever) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permissions are permanently denied')),
-        );
-        return;
-      } else if (permission == LocationPermission.denied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permissions are denied')),
+          const SnackBar(content: Text('Location permission denied.')),
         );
         return;
       }
     }
 
     try {
-      final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       setState(() {
         _currentPosition = position;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Location acquired: ${position.latitude}, ${position.longitude}')),
-      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error getting location: $e')),
-      );
+      debugPrint('Location error: $e');
     }
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_images.isEmpty) {
+    if (_uploadedImageUrls.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least one image.')),
+        const SnackBar(content: Text('Please upload at least one image.')),
       );
       return;
     }
 
     if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please get your current location.')),
+        const SnackBar(content: Text('Please fetch your location.')),
       );
       return;
     }
@@ -203,7 +199,6 @@ class _SellProductScreenState extends State<SellProductScreen> {
       return;
     }
 
-    // Validate price is a valid number
     final priceText = _controllers['price']?.text.trim() ?? '';
     final price = double.tryParse(priceText);
     if (price == null) {
@@ -218,31 +213,19 @@ class _SellProductScreenState extends State<SellProductScreen> {
     });
 
     try {
-      // Convert images to base64
-      List<String> imageBase64 = [];
-      for (var image in _images) {
-        final bytes = await image.readAsBytes();
-        imageBase64.add(base64Encode(bytes));
-      }
-
-      // Prepare form data
       Map<String, dynamic> formData = {
-        'title': _controllers['title']?.text.trim() ?? '',
-        'description': _controllers['description']?.text.trim() ?? '',
-        'price': price, // Already parsed as double
+        'title': _controllers['title']?.text.trim(),
+        'description': _controllers['description']?.text.trim(),
+        'price': price,
         'category': _selectedCategory,
-        'images': imageBase64,
-        'location': GeoPoint(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-        ),
+        'images': _uploadedImageUrls,
+        'location': GeoPoint(_currentPosition!.latitude, _currentPosition!.longitude),
         'timestamp': FieldValue.serverTimestamp(),
         'sellerId': user.uid,
         'sellerName': user.displayName ?? 'Anonymous',
         'sellerEmail': user.email ?? '',
       };
 
-      // Add category-specific fields
       for (var field in _categoryFields[_selectedCategory]!) {
         final value = _controllers[field['key']!]?.text.trim();
         if (value != null && value.isNotEmpty) {
@@ -251,16 +234,15 @@ class _SellProductScreenState extends State<SellProductScreen> {
       }
 
       await FirebaseFirestore.instance.collection('products').add(formData);
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Product listed successfully!')),
       );
       Navigator.pop(context);
     } catch (e) {
+      debugPrint('Error submitting form: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error submitting form: $e')),
       );
-      debugPrint('Error details: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -283,13 +265,11 @@ class _SellProductScreenState extends State<SellProductScreen> {
     final fields = _categoryFields[_selectedCategory] ?? [];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sell Product'),
-      ),
+      appBar: AppBar(title: const Text('Sell Product')),
       body: _isSubmitting
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Column(
@@ -297,145 +277,64 @@ class _SellProductScreenState extends State<SellProductScreen> {
             children: [
               DropdownButtonFormField<String>(
                 value: _selectedCategory,
-                items: _availableCategories
-                    .map((category) => DropdownMenuItem(
-                  value: category,
-                  child: Text(category),
-                ))
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _selectedCategory = value;
-                    });
-                  }
-                },
-                decoration: const InputDecoration(
-                  labelText: 'Category',
-                  border: OutlineInputBorder(),
-                ),
+                items: _availableCategories.map((cat) => DropdownMenuItem(value: cat, child: Text(cat))).toList(),
+                onChanged: (val) => setState(() => _selectedCategory = val!),
+                decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _controllers['title'],
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value?.isEmpty ?? true ? 'Please enter a title' : null,
+                decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
+                validator: (val) => val!.isEmpty ? 'Enter a title' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _controllers['description'],
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
                 maxLines: 3,
-                validator: (value) => value?.isEmpty ?? true
-                    ? 'Please enter a description'
-                    : null,
+                validator: (val) => val!.isEmpty ? 'Enter a description' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _controllers['price'],
-                decoration: const InputDecoration(
-                  labelText: 'Price',
-                  border: OutlineInputBorder(),
-                  prefixText: '₹ ',
-                ),
+                decoration: const InputDecoration(labelText: 'Price', prefixText: '₹ ', border: OutlineInputBorder()),
                 keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value?.isEmpty ?? true) {
-                    return 'Please enter a price';
-                  }
-                  if (double.tryParse(value!) == null) {
-                    return 'Please enter a valid number';
-                  }
-                  return null;
-                },
+                validator: (val) => val == null || double.tryParse(val) == null ? 'Enter a valid price' : null,
               ),
               ...fields.map((field) => Padding(
                 padding: const EdgeInsets.only(top: 16),
                 child: TextFormField(
                   controller: _controllers[field['key']!],
-                  decoration: InputDecoration(
-                    labelText: field['label'],
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: (value) => value?.isEmpty ?? true
-                      ? 'Please enter ${field['label']}'
-                      : null,
+                  decoration: InputDecoration(labelText: field['label'], border: const OutlineInputBorder()),
+                  validator: (val) => val!.isEmpty ? 'Enter ${field['label']}' : null,
                 ),
               )),
               const SizedBox(height: 16),
-              const Text(
-                'Product Images (max 5)',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  ..._images.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final image = entry.value;
-                    return Stack(
-                      children: [
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            image: DecorationImage(
-                              image: FileImage(image),
-                              fit: BoxFit.cover,
-                            ),
-                          ),
+                  ..._uploadedImageUrls.asMap().entries.map((entry) => Stack(
+                    children: [
+                      Image.network(entry.value, width: 100, height: 100, fit: BoxFit.cover),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: GestureDetector(
+                          onTap: () => _removeImage(entry.key),
+                          child: const CircleAvatar(radius: 12, backgroundColor: Colors.red, child: Icon(Icons.close, size: 16, color: Colors.white)),
                         ),
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: GestureDetector(
-                            onTap: () => _removeImage(index),
-                            child: Container(
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.close,
-                                size: 20,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  }),
-                  if (_images.length < 5)
+                      )
+                    ],
+                  )),
+                  if (_uploadedImageUrls.length < 5)
                     GestureDetector(
                       onTap: _pickImage,
                       child: Container(
                         width: 100,
                         height: 100,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.add_a_photo, size: 30),
-                            Text('Add Image'),
-                          ],
-                        ),
+                        decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.add_a_photo, size: 30),
                       ),
                     ),
                 ],
@@ -445,16 +344,12 @@ class _SellProductScreenState extends State<SellProductScreen> {
                 icon: const Icon(Icons.location_on),
                 label: const Text('Get Current Location'),
                 onPressed: _getCurrentLocation,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
               ),
               if (_currentPosition != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    'Location: ${_currentPosition!.latitude.toStringAsFixed(4)}, '
-                        '${_currentPosition!.longitude.toStringAsFixed(4)}',
+                    'Location: ${_currentPosition!.latitude.toStringAsFixed(4)}, ${_currentPosition!.longitude.toStringAsFixed(4)}',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.green),
                   ),
@@ -462,14 +357,8 @@ class _SellProductScreenState extends State<SellProductScreen> {
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _submit,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text(
-                  'Submit Listing',
-                  style: TextStyle(fontSize: 16),
-                ),
-              ),
+                child: const Text('Submit Listing', style: TextStyle(fontSize: 16)),
+              )
             ],
           ),
         ),

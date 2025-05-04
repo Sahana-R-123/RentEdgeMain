@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class Product {
   final String id;
   final String title;
+  final String description;
   final Map<String, dynamic> details;
   final double price;
   final List<String> images;
@@ -13,9 +14,23 @@ class Product {
   final String sellerName;
   final String sellerRegisterId;
 
+  // New optional fields (category-specific)
+  final String? author;
+  final String? bookTitle;
+  final String? condition;
+  final String? size;
+  final String? brand;
+  final String? model;
+  final String? specs;
+  final String? type;
+  final String? gameName;
+  final String? platform;
+  final String? gear;
+
   Product({
     required this.id,
     required this.title,
+    required this.description,
     required this.details,
     required this.price,
     required this.images,
@@ -25,13 +40,24 @@ class Product {
     required this.sellerId,
     required this.sellerName,
     required this.sellerRegisterId,
+    this.author,
+    this.bookTitle,
+    this.condition,
+    this.size,
+    this.brand,
+    this.model,
+    this.specs,
+    this.type,
+    this.gameName,
+    this.platform,
+    this.gear,
   });
 
-  // Existing fromMap factory (unchanged)
   factory Product.fromMap(Map<String, dynamic> map) {
     return Product(
       id: map['id'] ?? '',
       title: map['title'] ?? '',
+      description: map['description'] ?? '',
       details: map['details'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(map['details'])
           : <String, dynamic>{},
@@ -43,12 +69,8 @@ class Product {
       }(),
       images: () {
         final val = map['images'];
-        if (val is List) {
-          return List<String>.from(val.map((e) => e.toString()));
-        }
-        if (val is String) {
-          return val.split(',').map((e) => e.trim()).toList();
-        }
+        if (val is List) return List<String>.from(val.map((e) => e.toString()));
+        if (val is String) return val.split(',').map((e) => e.trim()).toList();
         return <String>[];
       }(),
       location: () {
@@ -67,14 +89,25 @@ class Product {
       sellerId: map['sellerId'] ?? '',
       sellerName: map['sellerName'] ?? '',
       sellerRegisterId: map['sellerRegisterId'] ?? '',
+      author: map['author'],
+      bookTitle: map['bookTitle'],
+      condition: map['condition'],
+      size: map['size'],
+      brand: map['brand'],
+      model: map['model'],
+      specs: map['specs'],
+      type: map['type'],
+      gameName: map['gameName'],
+      platform: map['platform'],
+      gear: map['gear'],
     );
   }
 
-  // Existing toMap method (unchanged)
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'title': title,
+      'description': description,
       'details': details,
       'price': price,
       'images': images,
@@ -82,55 +115,37 @@ class Product {
       'categoryDetails': categoryDetails,
       'category': category,
       'sellerId': sellerId,
+      'sellerName': sellerName,
+      'sellerRegisterId': sellerRegisterId,
+      'author': author,
+      'bookTitle': bookTitle,
+      'condition': condition,
+      'size': size,
+      'brand': brand,
+      'model': model,
+      'specs': specs,
+      'type': type,
+      'gameName': gameName,
+      'platform': platform,
+      'gear': gear,
     };
   }
 
-  // NEW: Add these methods for favorites functionality
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'title': title,
-    'price': price,
-    'images': images,
-    'location': location,
-    'category': category,
-    'sellerId': sellerId,
-    'details': details,
-    'categoryDetails': categoryDetails,
-    'sellerName': sellerName,
-    'sellerRegisterId': sellerRegisterId,
-  };
+  Map<String, dynamic> toJson() => toMap();
 
-  // NEW: Factory method for JSON deserialization
-  factory Product.fromJson(Map<String, dynamic> json) {
-    return Product(
-      id: json['id'],
-      title: json['title'],
-      price: json['price'].toDouble(),
-      images: List<String>.from(json['images']),
-      location: json['location'],
-      category: json['category'],
-      sellerId: json['sellerId'],
-      details: Map<String, dynamic>.from(json['details']),
-      categoryDetails: Map<String, dynamic>.from(json['categoryDetails']),
-      sellerName: json['sellerName'],
-      sellerRegisterId: json['sellerRegisterId'],
-    );
-  }
+  factory Product.fromJson(Map<String, dynamic> json) => Product.fromMap(json);
 
-  // NEW: Proper equality comparison
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-          other is Product && runtimeType == other.runtimeType && id == other.id;
+      identical(this, other) || (other is Product && runtimeType == other.runtimeType && id == other.id);
 
-  // NEW: hashCode implementation
   @override
   int get hashCode => id.hashCode;
 
-  // NEW: Helper method to create a copy of the product
   Product copyWith({
     String? id,
     String? title,
+    String? description,
     Map<String, dynamic>? details,
     double? price,
     List<String>? images,
@@ -140,10 +155,22 @@ class Product {
     String? sellerId,
     String? sellerName,
     String? sellerRegisterId,
+    String? author,
+    String? bookTitle,
+    String? condition,
+    String? size,
+    String? brand,
+    String? model,
+    String? specs,
+    String? type,
+    String? gameName,
+    String? platform,
+    String? gear,
   }) {
     return Product(
       id: id ?? this.id,
       title: title ?? this.title,
+      description: description ?? this.description,
       details: details ?? this.details,
       price: price ?? this.price,
       images: images ?? this.images,
@@ -153,6 +180,17 @@ class Product {
       sellerId: sellerId ?? this.sellerId,
       sellerName: sellerName ?? this.sellerName,
       sellerRegisterId: sellerRegisterId ?? this.sellerRegisterId,
+      author: author ?? this.author,
+      bookTitle: bookTitle ?? this.bookTitle,
+      condition: condition ?? this.condition,
+      size: size ?? this.size,
+      brand: brand ?? this.brand,
+      model: model ?? this.model,
+      specs: specs ?? this.specs,
+      type: type ?? this.type,
+      gameName: gameName ?? this.gameName,
+      platform: platform ?? this.platform,
+      gear: gear ?? this.gear,
     );
   }
 }

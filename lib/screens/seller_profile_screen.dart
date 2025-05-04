@@ -32,12 +32,15 @@ class SellerProfileScreen extends StatelessWidget {
   }
 
   Widget _buildProfileSection(Map<String, dynamic> data) {
+    final profileImageUrl = data['profileImageUrl']?.toString() ?? '';
+    debugPrint("🔥 Profile image URL: $profileImageUrl");
+
     return Column(
       children: [
         const SizedBox(height: 20),
-        if (data['profileImage'] != null)
+        if (profileImageUrl.isNotEmpty)
           CachedNetworkImage(
-            imageUrl: data['profileImage'],
+            imageUrl: profileImageUrl,
             imageBuilder: (context, imageProvider) => CircleAvatar(
               radius: 60,
               backgroundColor: Colors.transparent,
@@ -58,13 +61,13 @@ class SellerProfileScreen extends StatelessWidget {
             child: Icon(Icons.person, size: 50),
           ),
         const SizedBox(height: 16),
-        Text(
+        /*Text(
           data['firstName']?.toString() ?? 'No name provided',
           style: const TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
           ),
-        ),
+        ),*/
         if (data['registeredId'] != null)
           Padding(
             padding: const EdgeInsets.only(top: 4.0),
@@ -168,7 +171,7 @@ class SellerProfileScreen extends StatelessWidget {
           }
 
           final data = snapshot.data!;
-          debugPrint('Fetched data: $data'); // This will help in debugging
+          debugPrint('Fetched seller data: $data');
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),

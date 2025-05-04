@@ -1,4 +1,3 @@
-// lib/providers/favorite_provider.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_try02/models/product_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,10 +7,20 @@ class FavoriteProvider with ChangeNotifier {
   List<Product> _likedProducts = [];
   bool _isLoading = false;
   String? _error;
+  String? _currentUserId;
 
   List<Product> get likedProducts => _likedProducts;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  // Setter for userId
+  void setUserId(String userId) {
+    _currentUserId = userId;
+    _likedProducts.clear(); // Clear old user’s favorites
+    _loadFavorites();       // Load new user's favorites
+  }
+
+  String get _userPrefsKey => 'favorites_${_currentUserId ?? "guest"}';
 
   Future<void> initialize() async {
     if (_likedProducts.isEmpty && !_isLoading) {
@@ -26,7 +35,7 @@ class FavoriteProvider with ChangeNotifier {
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
-      final String? favoritesString = prefs.getString('favorites');
+      final String? favoritesString = prefs.getString(_userPrefsKey);
 
       if (favoritesString != null && favoritesString.isNotEmpty) {
         final List<dynamic> jsonList = json.decode(favoritesString);
@@ -43,41 +52,37 @@ class FavoriteProvider with ChangeNotifier {
 
   Future<void> _saveFavorites() async {
     try {
-      _isLoading = true;
-      notifyListeners();
-
       final prefs = await SharedPreferences.getInstance();
       final String favoritesString = json.encode(
         _likedProducts.map((product) => product.toJson()).toList(),
       );
-      await prefs.setString('favorites', favoritesString);
+      await prefs.setString(_userPrefsKey, favoritesString);
     } catch (e) {
       _error = 'Failed to save favorites';
       debugPrint('Error saving favorites: $e');
       rethrow;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
   bool isLiked(Product product) {
-    return _likedProducts.any((p) => p.id == product.id);
+    return _likedProducts.any((p) => p.id == product.id); // Uses overridden ==
   }
 
   Future<void> toggleLike(Product product) async {
     try {
       if (isLiked(product)) {
-        await unlikeProduct(product);
+        _likedProducts.removeWhere((p) => p.id == product.id); // safer
       } else {
-        await likeProduct(product);
+        _likedProducts.add(product);
       }
+      await _saveFavorites();
+      notifyListeners();
     } catch (e) {
-      _error = 'Failed to update favorites';
-      debugPrint('Error toggling favorite: $e');
+      debugPrint('Toggle like error: $e');
       rethrow;
     }
   }
+
 
   Future<void> likeProduct(Product product) async {
     if (!isLiked(product)) {
@@ -89,8 +94,7 @@ class FavoriteProvider with ChangeNotifier {
 
   Future<void> unlikeProduct(Product product) async {
     final initialLength = _likedProducts.length;
-    _likedProducts.removeWhere((p) => p.id == product.id);
-
+    _likedProducts.removeWhere((p) => p.id == product.id); // ✅ safer
     if (_likedProducts.length != initialLength) {
       await _saveFavorites();
       notifyListeners();

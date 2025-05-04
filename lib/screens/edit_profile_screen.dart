@@ -1,9 +1,14 @@
+import 'dart:io'; // Add this import for File
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Add this import
 import 'package:flutter_try02/providers/user_provider.dart';
 import 'package:flutter_try02/models/user_model.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'dart:convert';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -20,7 +25,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _registeredIdController;
   late TextEditingController _departmentController;
   late TextEditingController _collegeController;
-  File? _profileImage;
+  String? _profileImageUrl;
+  File? _newProfileImage;
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -33,7 +40,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _registeredIdController = TextEditingController(text: user?.registeredId ?? '');
     _departmentController = TextEditingController(text: user?.department ?? '');
     _collegeController = TextEditingController(text: user?.college ?? '');
-    _profileImage = user?.profileImage;
+    _profileImageUrl = user?.profileImage;
   }
 
   @override
@@ -67,12 +74,48 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
 
     if (source != null) {
-      final pickedFile = await picker.pickImage(source: source);
+      final pickedFile = await picker.pickImage(
+        source: source,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 70,
+      );
       if (pickedFile != null) {
         setState(() {
-          _profileImage = File(pickedFile.path);
+          _newProfileImage = File(pickedFile.path);
         });
       }
+    }
+  }
+
+  Future<String?> _uploadImageToImgBB(File imageFile) async {
+    try {
+      const apiKey = 'f2cbde2f326712f0ac36f47a7a6efa3a'; // Replace with your actual ImgBB API key
+      final url = Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey');
+
+      final request = http.MultipartRequest('POST', url);
+      request.files.add(await http.MultipartFile.fromBytes(
+        'image',
+        await imageFile.readAsBytes(),
+        contentType: MediaType('image', 'jpeg'),
+        filename: 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      ));
+
+      final response = await request.send();
+      final responseData = await response.stream.bytesToString();
+      final jsonData = json.decode(responseData);
+
+      if (jsonData['success'] == true) {
+        return jsonData['data']['url'];
+      } else {
+        throw Exception('Failed to upload image to ImgBB');
+      }
+    } catch (e) {
+      debugPrint('Error uploading image: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to upload profile image')),
+      );
+      return null;
     }
   }
 
@@ -99,10 +142,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 onTap: _pickImage,
                 child: CircleAvatar(
                   radius: 50,
-                  backgroundImage: _profileImage != null
-                      ? FileImage(_profileImage!)
+                  backgroundImage: _newProfileImage != null
+                      ? FileImage(_newProfileImage!)
+                      : _profileImageUrl != null
+                      ? NetworkImage(_profileImageUrl!)
                       : const AssetImage('assets/default_profile.png') as ImageProvider,
-                  child: _profileImage == null
+                  child: _newProfileImage == null && _profileImageUrl == null
                       ? const Icon(Icons.add_a_photo, size: 30)
                       : null,
                 ),
@@ -134,7 +179,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _saveProfile,
-                  child: const Text('Save Profile'),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Save Profile'),
                 ),
               ),
             ],
@@ -174,30 +221,63 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  void _saveProfile() {
-    if (_formKey.currentState!.validate() && _profileImage != null) {
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
       final currentUser = userProvider.user;
 
       if (currentUser != null) {
-        final updatedUser = currentUser.copyWith(
-          firstName: _firstNameController.text,
-          lastName: _lastNameController.text,
+        String? updatedImageUrl = _profileImageUrl;
+
+        // Upload new image if selected
+        if (_newProfileImage != null) {
+          updatedImageUrl = await _uploadImageToImgBB(_newProfileImage!);
+          if (updatedImageUrl == null) {
+            // If upload fails, keep the old image
+            updatedImageUrl = _profileImageUrl;
+          }
+        }
+
+        final updatedUser = AppUser(
+          id: currentUser.id,
+          registeredId: currentUser.registeredId,
           department: _departmentController.text,
           college: _collegeController.text,
-          profileImage: _profileImage!,
+          firstName: _firstNameController.text,
+          lastName: _lastNameController.text,
+          email: currentUser.email,
+          profileImage: updatedImageUrl,
         );
 
+        // Update in Firestore
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUser.id)
+            .update({
+          'firstName': updatedUser.firstName,
+          'lastName': updatedUser.lastName,
+          'department': updatedUser.department,
+          'college': updatedUser.college,
+          'profileImageUrl': updatedUser.profileImage,
+        });
+
         userProvider.setUser(updatedUser);
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile updated successfully!')),
         );
         Navigator.pop(context);
       }
-    } else if (_profileImage == null) {
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a profile image')),
+        SnackBar(content: Text('Error updating profile: ${e.toString()}')),
       );
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 }

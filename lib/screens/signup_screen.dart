@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,6 +8,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_try02/navigation/app_routes.dart';
 import 'package:flutter_try02/providers/user_provider.dart';
 import 'package:flutter_try02/models/user_model.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -30,24 +33,75 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _isLoading = false;
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final option = await showDialog<ImageSource>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Upload Profile Image"),
-        content: const Text("Choose an option"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, ImageSource.gallery), child: const Text("Gallery")),
-          TextButton(onPressed: () => Navigator.pop(context, ImageSource.camera), child: const Text("Camera")),
-        ],
-      ),
-    );
+    try {
+      final picker = ImagePicker();
+      final option = await showDialog<ImageSource>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Upload Profile Image"),
+          content: const Text("Choose an option"),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, ImageSource.gallery),
+                child: const Text("Gallery")
+            ),
+            TextButton(
+                onPressed: () => Navigator.pop(context, ImageSource.camera),
+                child: const Text("Camera")
+            ),
+          ],
+        ),
+      );
 
-    if (option != null) {
-      final pickedImage = await picker.pickImage(source: option);
-      if (pickedImage != null) {
-        setState(() => _profileImage = File(pickedImage.path));
+      if (option != null) {
+        final pickedImage = await picker.pickImage(
+          source: option,
+          maxWidth: 800,
+          maxHeight: 800,
+          imageQuality: 70,
+        );
+
+        if (pickedImage != null) {
+          setState(() {
+            _profileImage = File(pickedImage.path);
+          });
+        }
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error picking image: ${e.toString()}")),
+      );
+    }
+  }
+
+  Future<String?> _uploadImageToImgBB(File imageFile) async {
+    try {
+      const apiKey = 'f2cbde2f326712f0ac36f47a7a6efa3a'; // Replace with your actual ImgBB API key
+      final url = Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey');
+
+      final request = http.MultipartRequest('POST', url);
+      request.files.add(await http.MultipartFile.fromBytes(
+        'image',
+        await imageFile.readAsBytes(),
+        contentType: MediaType('image', 'jpeg'),
+        filename: 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      ));
+
+      final response = await request.send();
+      final responseData = await response.stream.bytesToString();
+      final jsonData = json.decode(responseData);
+
+      if (jsonData['success'] == true) {
+        return jsonData['data']['url'];
+      } else {
+        throw Exception('Failed to upload image to ImgBB');
+      }
+    } catch (e) {
+      debugPrint('Error uploading image: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to upload profile image')),
+      );
+      return null;
     }
   }
 
@@ -56,6 +110,11 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _isLoading = true);
 
     try {
+      String? imageUrl;
+      if (_profileImage != null) {
+        imageUrl = await _uploadImageToImgBB(_profileImage!);
+      }
+
       final authResult = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
@@ -72,6 +131,8 @@ class _SignupScreenState extends State<SignupScreen> {
         'firstName': _firstNameController.text.trim(),
         'lastName': _lastNameController.text.trim(),
         'email': _emailController.text.trim(),
+        'profileImageUrl': imageUrl,
+        'createdAt': FieldValue.serverTimestamp(),
       };
 
       await FirebaseFirestore.instance
@@ -80,13 +141,14 @@ class _SignupScreenState extends State<SignupScreen> {
           .set(userData);
 
       final appUser = AppUser(
+        id: authResult.user!.uid,
         registeredId: _registeredIdController.text,
         department: _departmentController.text,
         college: _collegeController.text,
         firstName: _firstNameController.text,
         lastName: _lastNameController.text,
         email: _emailController.text,
-        profileImage: _profileImage,
+        profileImage: imageUrl,
       );
 
       Provider.of<UserProvider>(context, listen: false).setUser(appUser);
@@ -102,6 +164,10 @@ class _SignupScreenState extends State<SignupScreen> {
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message ?? "Something went wrong")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: ${e.toString()}")),
       );
     } finally {
       setState(() => _isLoading = false);
@@ -134,12 +200,17 @@ class _SignupScreenState extends State<SignupScreen> {
               onTap: _pickImage,
               child: CircleAvatar(
                 radius: 50,
-                backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
-                child: _profileImage == null ? const Icon(Icons.add_a_photo, size: 40) : null,
+                backgroundImage: _profileImage != null
+                    ? FileImage(_profileImage!)
+                    : null,
+                child: _profileImage == null
+                    ? const Icon(Icons.add_a_photo, size: 40)
+                    : null,
               ),
             ),
             const SizedBox(height: 10),
-            const Text('Tap to upload profile image', style: TextStyle(color: Colors.grey)),
+            const Text('Tap to upload profile image',
+                style: TextStyle(color: Colors.grey)),
 
             const SizedBox(height: 20),
             TextFormField(

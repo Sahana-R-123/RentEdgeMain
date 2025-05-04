@@ -17,70 +17,13 @@ class ChatScreen extends StatelessWidget {
         Navigator.pop(context);
         return false;
       },
-      child: DefaultTabController(
-        length: 3,
-        child: Scaffold(
-          appBar: AppBar(
-            title: const Text("Chats"),
-            bottom: const TabBar(
-              tabs: [
-                Tab(text: "All"),
-                Tab(text: "Buying"),
-                Tab(text: "Selling"),
-              ],
-            ),
-          ),
-          body: TabBarView(
-            children: [
-              _ChatListWithFilter(filter: ChatFilter.all, currentUserId: currentUserId),
-              _ChatListWithFilter(filter: ChatFilter.buying, currentUserId: currentUserId),
-              _ChatListWithFilter(filter: ChatFilter.selling, currentUserId: currentUserId),
-            ],
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () async {
-              final selectedUser = await Navigator.pushNamed(context, AppRoutes.selectUser);
-              if (selectedUser == null || selectedUser is! Map) return;
-
-              final currentUser = FirebaseAuth.instance.currentUser;
-              if (currentUser == null) return;
-
-              final receiverId = selectedUser['uid'];
-              final receiverName = selectedUser['firstName'] ?? 'User';
-              final receiverImage = selectedUser.containsKey('photoUrl') && selectedUser['photoUrl'] != null
-                  ? selectedUser['photoUrl']
-                  : 'assets/default.jpg';
-
-              // Check if a chat already exists
-              final chatQuery = await FirebaseFirestore.instance
-                  .collection('chats')
-                  .where('participants', arrayContains: currentUser.uid)
-                  .get();
-
-              DocumentSnapshot? existingChat;
-              for (var doc in chatQuery.docs) {
-                final participants = List<String>.from(doc['participants']);
-                if (participants.contains(receiverId)) {
-                  existingChat = doc;
-                  break;
-                }
-              }
-
-              if (existingChat == null) {
-                await FirebaseFirestore.instance.collection('chats').add({
-                  'participants': [currentUser.uid, receiverId],
-                  'lastMessage': '',
-                  'lastMessageTime': FieldValue.serverTimestamp(),
-                  'type': 'buying',
-                });
-              }
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Chat started with $receiverName')),
-              );
-            },
-            child: const Icon(Icons.add),
-          ),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Chats"),
+        ),
+        body: _ChatListWithFilter(
+          filter: ChatFilter.all,
+          currentUserId: currentUserId,
         ),
       ),
     );
@@ -125,12 +68,6 @@ class _ChatListWithFilter extends StatelessWidget {
             final participants = List<String>.from(chatData['participants']);
             final receiverId = participants.firstWhere((id) => id != currentUserId);
             final chatType = chatData.containsKey('type') ? chatData['type'] : 'all';
-
-            if (filter != ChatFilter.all &&
-                !(filter == ChatFilter.buying && chatType == 'buying') &&
-                !(filter == ChatFilter.selling && chatType == 'selling')) {
-              return const SizedBox.shrink();
-            }
 
             return FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance.collection('users').doc(receiverId).get(),

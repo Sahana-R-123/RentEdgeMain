@@ -27,7 +27,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Step 1: Firebase Auth Sign In
       final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
@@ -35,7 +34,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final user = credential.user;
       if (user != null) {
-        // Step 2: Fetch user data from Firestore
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
@@ -43,13 +41,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (userDoc.exists) {
           final userData = userDoc.data()!;
-         // final userModel = UserModel.fromMap(userData);
-          final userModel = AppUser.fromMap(userData);
-
-          // Step 3: Set user data in Provider
+          final userModel = AppUser.fromMap(userData, user.uid);
           Provider.of<UserProvider>(context, listen: false).setUser(userModel);
-
-          // Step 4: Navigate to Dashboard
           Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
         } else {
           throw FirebaseAuthException(
@@ -75,6 +68,25 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  void _showForgotPasswordMessage() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Password Reset'),
+        content: const Text(
+          'Password reset functionality will be available in future updates.',
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -134,9 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () {
-                      // Add reset password navigation or logic here
-                    },
+                    onPressed: _showForgotPasswordMessage,
                     child: const Text('Forgot Password?'),
                   ),
                 ),
